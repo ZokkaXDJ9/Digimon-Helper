@@ -1,6 +1,6 @@
 import discord
 from discord.ext import commands
-from discord import app_commands
+from discord import app_commands, ui
 import json
 import os
 
@@ -9,12 +9,89 @@ def bullet_scale(value: int, max_value: int) -> str:
     Returns a string like '⬤⬤⬤⭘⭘⭘ `3/6`' to represent current vs max.
     Example: bullet_scale(3, 6) -> '⬤⬤⬤⭘⭘⭘ `3/6`'
     """
-    # Handle edge cases: if max_value == 0, avoid dividing by zero
     if max_value < 1:
         max_value = max(value, 1)
     filled = "⬤" * value
     empty = "⭘" * (max_value - value)
     return f"{filled}{empty} `{value}/{max_value}`"
+
+
+def build_info_message(data: dict) -> str:
+    """
+    Builds the Digimon info message, including evolution details.
+    """
+    digimon_name = data.get("name", "Unknown")
+    attribute = data.get("attribute", "Unknown")
+    level = data.get("level", "Unknown")
+    hp_value = data.get("hp", 0)
+
+    strength_str = bullet_scale(data.get("strength", 0), data.get("strength_max", data.get("strength", 0)))
+    dex_str = bullet_scale(data.get("dexterity", 0), data.get("dexterity_max", data.get("dexterity", 0)))
+    vit_str = bullet_scale(data.get("vitality", 0), data.get("vitality_max", data.get("vitality", 0)))
+    spc_str = bullet_scale(data.get("special", 0), data.get("special_max", data.get("special", 0)))
+    ins_str = bullet_scale(data.get("insight", 0), data.get("insight_max", data.get("insight", 0)))
+
+    ability = data.get("ability", "None")
+    evolves_from = data.get("evolves_from", None)
+    evolves_to = data.get("evolves_to", [])
+
+    lines = [
+        f"### {digimon_name}",
+        f"**Attribute**: {attribute}",
+        f"**Level**: {level}",
+        "",
+        f"**HP**: {hp_value}",
+        f"**Strength**: {strength_str}",
+        f"**Dexterity**: {dex_str}",
+        f"**Vitality**: {vit_str}",
+        f"**Special**: {spc_str}",
+        f"**Insight**: {ins_str}",
+    ]
+
+    if ability:
+        lines.append(f"**Ability**: {ability}")
+
+    return "\n".join(lines)
+
+
+class DigimonView(ui.View):
+    def __init__(self, bot, data):
+        super().__init__()
+        self.bot = bot
+        self.data = data
+
+    @ui.button(label="Show Moves", style=discord.ButtonStyle.primary)
+    async def show_moves(self, interaction: discord.Interaction, button: ui.Button):
+        moves = self.data.get("moves", [])
+        if not moves:
+            await interaction.response.edit_message(
+                content="This Digimon has no recorded moves.",
+                view=self
+            )
+            return
+
+        move_text = "\n".join(f"- {move}" for move in moves)
+        content = f"### {self.data.get('name', 'Unknown')} Moves\n\n{move_text}"
+        await interaction.response.edit_message(content=content, view=self)
+
+    @ui.button(label="Show Evolution", style=discord.ButtonStyle.success)
+    async def show_evolution(self, interaction: discord.Interaction, button: ui.Button):
+        evolves_from = self.data.get("evolves_from", "Unknown")
+        evolves_to = self.data.get("evolves_to", [])
+
+        evolution_text = f"**Evolves From**: {evolves_from}\n"
+        if evolves_to:
+            evolution_text += f"**Evolves To**: {', '.join(evolves_to)}"
+        else:
+            evolution_text += "**Evolves To**: None"
+
+        content = f"### {self.data.get('name', 'Unknown')} Evolution\n\n{evolution_text}"
+        await interaction.response.edit_message(content=content, view=self)
+
+    @ui.button(label="Show Info", style=discord.ButtonStyle.secondary)
+    async def show_info(self, interaction: discord.Interaction, button: ui.Button):
+        await interaction.response.edit_message(content=build_info_message(self.data), view=self)
+
 
 class DigimonCog(commands.Cog):
     """A Cog that shows Digimon stats in a Pokerole-like format (simplified)."""
@@ -28,11 +105,6 @@ class DigimonCog(commands.Cog):
     )
     @app_commands.describe(name="The name of the Digimon (e.g. Agumon)")
     async def get_digimon(self, interaction: discord.Interaction, name: str):
-        """
-        Reads data/digimon/{name}.json and displays a stylized text output 
-        without ID number, emoji, height, weight, or hp_max.
-        """
-        # 1) Build the path (lowercase the name to match your file convention)
         json_path = f"data/digimon/{name.lower()}.json"
         if not os.path.exists(json_path):
             await interaction.response.send_message(
@@ -41,7 +113,6 @@ class DigimonCog(commands.Cog):
             )
             return
 
-        # 2) Load the JSON safely (handle decode errors)
         try:
             with open(json_path, "r", encoding="utf-8") as f:
                 data = json.load(f)
@@ -52,98 +123,27 @@ class DigimonCog(commands.Cog):
             )
             return
 
-        # 3) Gather stats
-        digimon_name = data.get("name", "Unknown")
-        attribute = data.get("attribute", "Unknown")
-        hp_value = data.get("hp", 0)
+        message_content = build_info_message(data)
+        view = DigimonView(self.bot, data)
+        await interaction.response.send_message(message_content, view=view)
 
-        # Safely get stat & stat_max for bullet-scale
-        # If "strength_max" is missing, default to the same as "strength"
-        strength_val = data.get("strength", 0)
-        strength_max = data.get("strength_max", strength_val)
-
-        dex_val = data.get("dexterity", 0)
-        dex_max = data.get("dexterity_max", dex_val)
-
-        vit_val = data.get("vitality", 0)
-        vit_max = data.get("vitality_max", vit_val)
-
-        spc_val = data.get("special", 0)
-        spc_max = data.get("special_max", spc_val)
-
-        ins_val = data.get("insight", 0)
-        ins_max = data.get("insight_max", ins_val)
-
-        # Convert them to bullet-scale strings
-        strength_str = bullet_scale(strength_val, strength_max)
-        dex_str      = bullet_scale(dex_val, dex_max)
-        vit_str      = bullet_scale(vit_val, vit_max)
-        spc_str      = bullet_scale(spc_val, spc_max)
-        ins_str      = bullet_scale(ins_val, ins_max)
-
-        # Ability (if present)
-        ability = data.get("ability")
-
-        # 4) Build the text output
-        # Example layout:
-        # ### Agumon
-        # **Attribute**: Vaccine
-        # **HP**: 5
-        # **Strength**: ⬤⬤⬤⭘⭘⭘ `3/6`
-        # **Dexterity**: ⬤⬤⬤⭘⭘⭘ `3/6`
-        # ...
-        # **Ability**: Pepper Breath
-        lines = []
-        lines.append(f"### {digimon_name}")
-        lines.append(f"**Attribute**: {attribute}")
-        lines.append(f"**HP**: {hp_value}")
-        lines.append(f"**Strength**: {strength_str}")
-        lines.append(f"**Dexterity**: {dex_str}")
-        lines.append(f"**Vitality**: {vit_str}")
-        lines.append(f"**Special**: {spc_str}")
-        lines.append(f"**Insight**: {ins_str}")
-
-        if ability:
-            lines.append(f"**Ability**: {ability}")
-
-        final_message = "\n".join(lines)
-
-        # 5) Send the response as plain text (Markdown rendered by Discord)
-        await interaction.response.send_message(final_message)
-
-    # Optional: Autocomplete, if you want a dropdown of known digimon
     @get_digimon.autocomplete("name")
     async def digimon_name_autocomplete(
         self,
         interaction: discord.Interaction,
         current: str
     ) -> list[app_commands.Choice[str]]:
-        """
-        Suggest available Digimon names based on JSON files in data/digimon/.
-        """
-        # If the folder doesn't exist or is empty, just return []
         if not os.path.isdir("data/digimon"):
             return []
 
-        all_digimon = []
-        for file in os.listdir("data/digimon"):
-            if file.lower().endswith(".json"):
-                digimon_name = file[:-5]  # "agumon.json" -> "agumon"
-                all_digimon.append(digimon_name)
-
-        # Filter by user input, up to Discord's 25-suggestion limit
-        matched = [
-            dn for dn in all_digimon
-            if current.lower() in dn.lower()
-        ][:25]
-
-        # Return them as capitalized names in the dropdown, 
-        # but keep the actual value lowercase for the file lookup
-        return [
-            app_commands.Choice(name=dm.capitalize(), value=dm)
-            for dm in matched
+        all_digimon = [
+            file[:-5] for file in os.listdir("data/digimon")
+            if file.lower().endswith(".json")
         ]
 
+        matched = [dn for dn in all_digimon if current.lower() in dn.lower()][:25]
+        return [app_commands.Choice(name=dm.capitalize(), value=dm) for dm in matched]
+
+
 async def setup(bot: commands.Bot):
-    """Called automatically when this cog is loaded."""
     await bot.add_cog(DigimonCog(bot))

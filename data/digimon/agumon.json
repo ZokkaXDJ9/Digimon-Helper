@@ -1,22 +1,20 @@
 {
   "name": "Agumon",
   "attribute": "Vaccine",
+  "level": "Rookie",
   "hp": 5,
-
   "strength": 3,
   "strength_max": 6,
-
   "dexterity": 3,
   "dexterity_max": 6,
-
   "vitality": 2,
   "vitality_max": 5,
-
   "special": 2,
   "special_max": 5,
-
   "insight": 2,
   "insight_max": 5,
-
-  "ability": "Pepper Breath"
+  "ability": "Pepper Breath",
+  "moves": ["Pepper Breath", "Claw Attack", "Spitfire Blast"],
+  "evolves_from": "Koromon",
+  "evolves_to": ["**Greymon**", "Tyrannomon", "Meramon"]
 }

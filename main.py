@@ -18,10 +18,19 @@ async def on_ready():
     print(f"Bot is online as {bot.user}")
 
 async def load_extensions():
+    # Same structure, but with try-except
     for filename in os.listdir("./commands"):
         if filename.endswith(".py") and not filename.startswith("__"):
-            extension = filename[:-3]  # e.g., "ping"
-            await bot.load_extension(f"commands.{extension}")
+            extension = filename[:-3]  # strip ".py"
+            try:
+                await bot.load_extension(f"commands.{extension}")
+                print(f"Loaded extension: {extension}")
+            except commands.errors.NoEntryPointError:
+                # This file doesn't have `setup` or `async def setup(bot)`, so skip it.
+                print(f"Skipped non-Cog file: {extension}")
+            except commands.ExtensionFailed as e:
+                # Some other error inside the extension code
+                print(f"Failed to load extension {extension}: {e}")
 
 async def main():
     await load_extensions()
